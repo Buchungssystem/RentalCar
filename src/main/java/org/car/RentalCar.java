@@ -15,21 +15,76 @@ import java.util.UUID;
 
 public class RentalCar extends Participant{
 
-    @Override
-    public Operations Vote() {
-        return Operations.ABORT;
-    }
+   // @Override
+   // public Operations Vote() {
+    //    return Operations.ABORT;
+  //  }
 
     @Override
-    public void book() {
+    // check if start-enddate and ID correlates with existing bookings (like available cars);
+    // if not, then create new booking (stable=false) with start- and enddate and car_ID and return COMMIT;
+    // else return ABORT;
+    public Operations prepare(LocalDate startDate, LocalDate endDate, int ID) {
+        DatabaseConnection dbConn = new DatabaseConnection();
+        ResultSet rs;
+        try(Connection con = dbConn.getConn()){
+            PreparedStatement stm = con.prepareStatement("SELECT * FROM booking");
+            rs = stm.executeQuery();
+            while(rs.next()){
+                LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
+                LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
+                int idEntry = rs.getInt("carID");
+                if ((startDate.isAfter(startDateEntry) && startDate.isBefore(endDateEntry)) || (endDate.isAfter(startDateEntry) && endDate.isBefore(endDateEntry))) {
+                    if (idEntry == ID){
+                        return Operations.ABORT;
+                    }
+                }
+            }
+            PreparedStatement insert = con.prepareStatement("INSERT INTO booking (startDate, endDate, stable) VALUES (startDateVariable, endDateVariable, False)");
+            insert.executeQuery();
+            return Operations.COMMIT;
+            }
+        catch(Exception e){}
+    }
+
+
+    @Override
+    public Operations book(int ID) {
+        // setting booking attribute stable to true, to confirm booking
+        // return SUCCESS, otherwise FAIL and ID
+        DatabaseConnection dbConn = new DatabaseConnection();
+        try(Connection con = dbConn.getConn()){
+            PreparedStatement update = con.prepareStatement("UPDATE booking SET stable = True WHERE (bookingID = ID)");
+            update.executeQuery();
+            return Operations.SUCCESS;
+
+        }catch(Exception e){
+            return Operations.FAIL;
+        }
 
     }
+
+
+
+    @Override
+    // delete booking with ID, when ABORT
+    public void bookingCleanUp(int ID){
+        DatabaseConnection dbConn = new DatabaseConnection();
+        try(Connection con = dbConn.getConn()){
+            PreparedStatement delete = con.prepareStatement("DELETE FROM booking WHERE bookingID = ID");
+            delete.executeQuery();
+
+            }catch(Exception e){}
+
+        }
+
+
 
     @Override
     public byte[] getAvailableItems(LocalDate startDate, LocalDate endDate, UUID pTransaktionnumber) {
         DatabaseConnection dbConn = new DatabaseConnection();
         ArrayList<String> availableCarIds = new ArrayList<>();
-        ResultSet rs = null;
+        ResultSet rs;
         ObjectMapper objectMapper = new ObjectMapper();
         UDPMessage udpMessage;
         byte[] data;
@@ -40,7 +95,7 @@ public class RentalCar extends Participant{
             while(rs.next()){
                 LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
                 LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
-                if (startDateEntry.isAfter(endDate) | endDateEntry.isBefore(startDate)) {
+                if ((startDate.isAfter(startDateEntry) && startDate.isBefore(endDateEntry)) || (endDate.isAfter(startDateEntry) && endDate.isBefore(endDateEntry))) {
                     availableCarIds.add(rs.getString("carID"));
                 }
             }
