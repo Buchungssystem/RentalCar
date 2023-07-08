@@ -1,4 +1,5 @@
 package org.car;
+import org.utils.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.utils.Operations;
@@ -15,12 +16,17 @@ import java.util.UUID;
 
 public class RentalCar extends Participant{
 
-   // @Override
-   // public Operations Vote() {
-    //    return Operations.ABORT;
-  //  }
+    @Override
+    public Operations Vote() {
+        return Operations.ABORT;
+    }
 
     @Override
+    public byte[] book(LocalDate startDate, LocalDate endDate) {
+        return new byte[0];
+    }
+
+    /*@Override
     // check if start-enddate and ID correlates with existing bookings (like available cars);
     // if not, then create new booking (stable=false) with start- and enddate and car_ID and return COMMIT;
     // else return ABORT;
@@ -82,15 +88,14 @@ public class RentalCar extends Participant{
         }
 
         }
-
+*/
 
 
     @Override
-    public byte[] getAvailableItems(LocalDate startDate, LocalDate endDate, UUID pTransaktionnumber) {
+    public ArrayList<Object> getAvailableItems(LocalDate startDate, LocalDate endDate) {
         DatabaseConnection dbConn = new DatabaseConnection();
         ArrayList<String> availableCarIds = new ArrayList<>();
-        ResultSet rs;
-        ObjectMapper objectMapper = new ObjectMapper();
+        ResultSet rs = null;
         UDPMessage udpMessage;
         byte[] data;
         try(Connection con = dbConn.getConn()){
@@ -113,32 +118,27 @@ public class RentalCar extends Participant{
                 }
             }
 
-            stm = con.prepareStatement("SELECT * FROM car WHERE carID IS NOT IN (?)");
+            stm = con.prepareStatement("SELECT * FROM car WHERE carID NOT IN (?)");
             stm.setString(1, availableCarsIds);
             rs = stm.executeQuery();
-            ArrayList<Car> availableCars = new ArrayList<>();
+            ArrayList<Object> availableCars = new ArrayList<>();
             while(rs.next()){
                 availableCars.add(new Car(rs.getInt("carID"), rs.getString("brand"), rs.getString("type")));
             }
-
-            data = objectMapper.writeValueAsBytes(availableCars);
-            udpMessage = new UDPMessage(pTransaktionnumber, data, SendingInformation.RENTALCAR, Operations.AVAILIBILITY);
-
-            return objectMapper.writeValueAsBytes(udpMessage);
+            System.out.println(availableCars);
+            return availableCars;
 
         }catch(Exception e){
-            String errorMessage = "Something went wrong:\n" + e.getMessage();
-            byte[] res;
-            try {
-                data = objectMapper.writeValueAsBytes(errorMessage);
-                udpMessage = new UDPMessage(pTransaktionnumber, data, SendingInformation.RENTALCAR, Operations.AVAILIBILITY);
-                res = objectMapper.writeValueAsBytes(udpMessage);
-            }catch (com.fasterxml.jackson.core.JsonProcessingException er){
-                return errorMessage.getBytes();
-            }
-
-            return res;
+            System.out.println("An Error has occured: " + e.getMessage());
+            return null;
         }
+    }
+
+    public boolean isAvailable(LocalDate startDate, LocalDate endDate, LocalDate startDateEntry, LocalDate endDateEntry){
+        if (!(startDateEntry.isAfter(endDate) | endDateEntry.isBefore(startDate))) {
+            return false;
+        }
+        return true;
     }
 
     public static void main(String[] args) {
