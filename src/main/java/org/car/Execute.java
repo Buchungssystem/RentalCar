@@ -28,24 +28,31 @@ public class Execute {
                 String data = new String(dgPacket.getData(), 0, dgPacket.getLength());
                 UDPMessage dataObject = objectMapper.readValue(data, UDPMessage.class);
 
+
+                // hier müssen wir noch einen Timeout setzen, dass wenn der Koordinator ausfällt die beiden Atzen untereinander kommunizieren;
+
                 switch (dataObject.getOperation()){
                     case PREPARE -> {
+                        // function prepare()
+                        // hier krachts, da muss ein spezieller Timeout für die jeweilige UUID rein, falls Koordinator ausfällt
 
                     }
                     case COMMIT -> {
+                        // function book()
 
                     }
                     case ABORT -> {
+                        // function bookingCleanUP()
 
                     }
-                    case READY -> {
+                    /*case READY -> {
 
                     }
                     case AVAILIBILITY -> {
-                        // retrieve data -> probably start and endDate
-                        // call availableItems method
-                        // return res
-                    }
+                        retrieve data -> probably start and endDate
+                        call availableItems method
+                        return res
+                    }*/
                 }
 
             } catch (Exception e) {
