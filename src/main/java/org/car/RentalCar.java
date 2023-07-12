@@ -17,85 +17,73 @@ import java.util.UUID;
 public class RentalCar extends Participant{
 
     @Override
-    public Operations Vote() {
-        return Operations.ABORT;
-    }
-
-    @Override
-    public byte[] book(LocalDate startDate, LocalDate endDate) {
-        return new byte[0];
-    }
-
-    /*@Override
-    // check if start-enddate and ID correlates with existing bookings (like available cars);
-    // if not, then create new booking (stable=false) with start- and enddate and car_ID and return COMMIT;
-    // else return ABORT;
-    public Operations prepare(LocalDate startDate, LocalDate endDate, int carID, UUID transactionID) {
+    public Operations prepare(BookingData bookingData, UUID transaktionId) {
         DatabaseConnection dbConn = new DatabaseConnection();
-        ResultSet rs;
-        try(Connection con = dbConn.getConn()){
+        LocalDate startDate = bookingData.getStartDate();
+        LocalDate endDate = bookingData.getEndDate();
+        int requestedId = bookingData.getSelectedCar();
+
+        try(Connection con = dbConn.getConn()) {
+
+            //Check if there is already any Booking over this Item
             PreparedStatement stm = con.prepareStatement("SELECT * FROM booking");
-            rs = stm.executeQuery();
-            while(rs.next()){
-                LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
-                LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
-                int idEntry = rs.getInt("carID");
-                if ((startDate.isAfter(startDateEntry) && startDate.isBefore(endDateEntry)) || (endDate.isAfter(startDateEntry) && endDate.isBefore(endDateEntry))) {
-                    if (idEntry == carID){
+            ResultSet rs = stm.executeQuery();
+
+            while (rs.next()) {
+                if(rs.getInt("carID") == requestedId){
+                    LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
+                    LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
+                    if (!isAvailable(startDate, endDate, startDateEntry, endDateEntry)) {
                         return Operations.ABORT;
-                        // and transaktionID
                     }
+
                 }
             }
-            PreparedStatement insert = con.prepareStatement("INSERT INTO booking (bookingID startDate, endDate, stable) VALUES (transactionID, startDateVariable, endDateVariable, False)");
-            insert.executeQuery();
-            return Operations.COMMIT;
-            }
-        catch(Exception e){}
+
+            //Car is available
+            stm = con.prepareStatement("INSERT INTO booking VALUES (\"" + transaktionId + "\", \"" + startDate + "\", \"" + endDate + "\", 0, " + bookingData.getSelectedCar() + ")");
+            stm.executeUpdate();
+            System.out.println("successfully booked");
+
+            return Operations.READY;
+        }catch (Exception e){
+            System.out.println("kapput, weil " + e.getMessage());
+            return Operations.ABORT;
+        }
+
     }
 
-
     @Override
-    public Operations book(UUID transakcionID) {
-        // setting booking attribute stable to true, to confirm booking
-        // return SUCCESS, otherwise FAIL and ID
+    public boolean commit(UUID transaktionId){
         DatabaseConnection dbConn = new DatabaseConnection();
         try(Connection con = dbConn.getConn()){
-            PreparedStatement update = con.prepareStatement("UPDATE booking SET stable = True WHERE (bookingID = transactionID)");
-            update.executeQuery();
-            return Operations.SUCCESS;
-            // and transaktionID
-
+            PreparedStatement stm = con.prepareStatement("UPDATE booking SET stable = 1 WHERE bookingID = \"" + transaktionId + "\"");
+            stm.executeUpdate();
+            return true;
         }catch(Exception e){
-            return Operations.FAIL;
-            // and transaktionID
+            System.out.println("des kann jetzt nicht Wahrsteiner im commit");
+            return false;
         }
-
     }
 
-
-
     @Override
-    // delete booking with ID, when ABORT
-    public void bookingCleanUp(UUID transactionID){
+    public boolean abort(UUID transaktionId){
         DatabaseConnection dbConn = new DatabaseConnection();
         try(Connection con = dbConn.getConn()){
-            PreparedStatement delete = con.prepareStatement("DELETE FROM booking WHERE bookingID = transactionID");
-            delete.executeQuery();
-
-            }catch(Exception e){
-            // nicht in der Datenbank
+            PreparedStatement stm = con.prepareStatement("DELETE FROM booking WHERE bookingID = \"" + transaktionId + "\"");
+            stm.executeQuery();
+            return true;
+        }catch(Exception e){
+            System.out.println("des kann jetzt nicht Wahrsteiner im abort");
+            return false;
         }
-
-        }
-*/
-
+    }
 
     @Override
     public ArrayList<Object> getAvailableItems(LocalDate startDate, LocalDate endDate) {
         DatabaseConnection dbConn = new DatabaseConnection();
         ArrayList<String> availableCarIds = new ArrayList<>();
-        ResultSet rs = null;
+        ResultSet rs;
         UDPMessage udpMessage;
         byte[] data;
         try(Connection con = dbConn.getConn()){
@@ -105,7 +93,7 @@ public class RentalCar extends Participant{
             while(rs.next()){
                 LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
                 LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
-                if (!(startDateEntry.isAfter(endDate) | endDateEntry.isBefore(startDate))) {
+                if (!isAvailable(startDate, endDate, startDateEntry, endDateEntry)) {
                     availableCarIds.add(rs.getString("carID"));
                 }
             }
@@ -135,10 +123,10 @@ public class RentalCar extends Participant{
     }
 
     public boolean isAvailable(LocalDate startDate, LocalDate endDate, LocalDate startDateEntry, LocalDate endDateEntry){
-        if (!(startDateEntry.isAfter(endDate) | endDateEntry.isBefore(startDate))) {
-            return false;
+        if (startDateEntry.isAfter(endDate) | endDateEntry.isBefore(startDate)) {
+            return true;
         }
-        return true;
+        return false;
     }
 
     public static void main(String[] args) {

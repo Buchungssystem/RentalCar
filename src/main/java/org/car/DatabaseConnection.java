@@ -8,7 +8,7 @@ public class DatabaseConnection {
     private String dbURL = "jdbc:mysql://localhost:3306/rental_car";
     private String user = "root";
 
-    private String pass = "1234";
+    private String pass = "pass";
 
     public Connection getConn() throws SQLException {
         return DriverManager.getConnection(dbURL, user, pass);
