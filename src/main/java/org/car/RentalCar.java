@@ -7,6 +7,7 @@ import org.utils.Participant;
 import org.utils.SendingInformation;
 import org.utils.UDPMessage;
 
+import java.net.DatagramSocket;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,6 +16,16 @@ import java.util.ArrayList;
 import java.util.UUID;
 
 public class RentalCar extends Participant{
+
+    public DatagramSocket dgSocket;
+
+    public RentalCar(){
+        try{
+            dgSocket = new DatagramSocket(Participant.rentalCarPort);
+        }catch(Exception e){
+            System.out.println("Socket was not set: " + e.getMessage());
+        }
+    }
 
     @Override
     public Operations prepare(BookingData bookingData, UUID transaktionId) {
@@ -45,7 +56,7 @@ public class RentalCar extends Participant{
             stm.executeUpdate();
             System.out.println("successfully booked");
 
-            return Operations.READY;
+            return Operations.ABORT;
         }catch (Exception e){
             System.out.println("kapput, weil " + e.getMessage());
             return Operations.ABORT;
@@ -71,7 +82,7 @@ public class RentalCar extends Participant{
         DatabaseConnection dbConn = new DatabaseConnection();
         try(Connection con = dbConn.getConn()){
             PreparedStatement stm = con.prepareStatement("DELETE FROM booking WHERE bookingID = \"" + transaktionId + "\"");
-            stm.executeQuery();
+            stm.executeUpdate();
             return true;
         }catch(Exception e){
             System.out.println("des kann jetzt nicht Wahrsteiner im abort");

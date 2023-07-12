@@ -28,10 +28,12 @@ public class Execute {
         r.getAvailableItems(startDate, endDate);*/
 
         while (true) {
-            try (DatagramSocket dgSocket = new DatagramSocket(Participant.rentalCarPort)) {
+            try{
                 byte[] buffer = new byte[65507];
                 //DatagramPacket for recieving data
                 DatagramPacket dgPacketIn = new DatagramPacket(buffer, buffer.length);
+                System.out.println("Listening on Port " + Participant.rentalCarPort);
+                r.dgSocket.receive(dgPacketIn);
                 //byte data of UDP message
                 byte[] messageData;
                 //response UDP Message
@@ -40,8 +42,6 @@ public class Execute {
                 byte[] parsedMessage;
 
 
-                System.out.println("Listening on Port " + Participant.rentalCarPort);
-                dgSocket.receive(dgPacketIn);
                 String data = new String(dgPacketIn.getData(), 0, dgPacketIn.getLength());
                 UDPMessage dataObject = objectMapper.readValue(data, UDPMessage.class);
 
@@ -59,7 +59,7 @@ public class Execute {
                         messageData = objectMapper.writeValueAsBytes(responeseMessage);
                         DatagramPacket dgOutPrepare = new DatagramPacket(messageData, messageData.length, Participant.localhost, Participant.travelBrokerPort);
 
-                        dgSocket.send(dgOutPrepare);
+                        r.dgSocket.send(dgOutPrepare);
                         System.out.println("prepare answered: " + response);
                     }
                     case COMMIT -> {
@@ -69,7 +69,7 @@ public class Execute {
                             parsedMessage = objectMapper.writeValueAsBytes(responeseMessage);
                             DatagramPacket dgOutCommit = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, Participant.travelBrokerPort);
 
-                            dgSocket.send(dgOutCommit);
+                            r.dgSocket.send(dgOutCommit);
                             System.out.println("commit answered - Ok");
                         }
                     }
@@ -80,7 +80,7 @@ public class Execute {
                             parsedMessage = objectMapper.writeValueAsBytes(responeseMessage);
                             DatagramPacket dgOutAbort = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, Participant.travelBrokerPort);
 
-                            dgSocket.send(dgOutAbort);
+                            r.dgSocket.send(dgOutAbort);
                             System.out.println("abort answered");
                         }
                     }
@@ -99,7 +99,7 @@ public class Execute {
                             parsedMessage = objectMapper.writeValueAsBytes(responseMessage);
                             //Datagrampacket for sending the response
                             DatagramPacket dgPacketOut = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, Participant.travelBrokerPort);
-                            dgSocket.send(dgPacketOut);
+                            r.dgSocket.send(dgPacketOut);
 
                         }
                     }
