@@ -12,9 +12,22 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class Execute {
+
+    private final static Logger LOGGER = Logger.getLogger(Execute.class.getName());
+
+    private static TransactionContext transactionContext;
+
+    private static Map<UUID, TransactionContext> transactionContextMap = new HashMap<>();
+
+    private static LogWriter<TransactionContext> logWriter = new LogWriter<>();
+
     public static void main(String[] args) {
 
         ObjectMapper objectMapper = new ObjectMapper();
@@ -22,91 +35,138 @@ public class Execute {
 
 
         RentalCar r = new RentalCar();
-        r.getAvailableItems(LocalDate.of(2023, 6, 1), LocalDate.of(2023, 6, 10));
-        /*LocalDate startDate = LocalDate.of(2023, 8, 1);
-        LocalDate endDate = LocalDate.of(2023, 8, 14);
-        r.getAvailableItems(startDate, endDate);*/
 
         while (true) {
             try{
-                byte[] buffer = new byte[65507];
-                //DatagramPacket for recieving data
-                DatagramPacket dgPacketIn = new DatagramPacket(buffer, buffer.length);
-                System.out.println("Listening on Port " + Participant.rentalCarPort);
-                r.dgSocket.receive(dgPacketIn);
+
                 //byte data of UDP message
                 byte[] messageData;
-                //response UDP Message
-                UDPMessage responeseMessage;
+
                 //byte UDP Message
-                byte[] parsedMessage;
+                byte [] parsedMessage;
+                byte[] buffer = new byte[65507];
+                //DatagramPacket for receiving data
+                DatagramPacket dgPacketIn = new DatagramPacket(buffer, buffer.length);
+                //response UDPMessage
+                UDPMessage responseMessage;
 
+                LOGGER.log(Level.INFO, "RentalCar listening on Port: " + Participant.rentalCarPort);
+                r.dgSocket.receive(dgPacketIn);
 
+                //string data to parse it into Objects
                 String data = new String(dgPacketIn.getData(), 0, dgPacketIn.getLength());
+                //parsed UDP message
                 UDPMessage dataObject = objectMapper.readValue(data, UDPMessage.class);
+
+                //store TransactionID for context on further processing
+                UUID transactionId = dataObject.getTransaktionNumber();
+
+                //store originPort of the requesting travelBroker
+                int originPort = dataObject.getOriginPort();
 
                 switch (dataObject.getOperation()){
                     case PREPARE -> {
-                        System.out.println("prepare recieved");
+                        //log prepare received but not answered
+                        transactionContext = new TransactionContext(States.PREPARE, originPort, false);
+                        logWriter.write(transactionId, transactionContext);
+                        transactionContextMap.put(transactionId, transactionContext);
+
+                        LOGGER.log(Level.INFO, "2PC: Prepare - " + transactionId);
+
+                        //get data of message
                         messageData = dataObject.getData();
                         data = new String(messageData, 0, messageData.length);
                         BookingData bookingData = objectMapper.readValue(data, BookingData.class);
 
+                        //run actual prepare and safe the response (Commit or Abort)
                         Operations response = r.prepare(bookingData, dataObject.getTransaktionNumber());
-                        responeseMessage = new UDPMessage(dataObject.getTransaktionNumber(), new byte[0], SendingInformation.RENTALCAR, response);
+                        responseMessage = new UDPMessage(dataObject.getTransaktionNumber(), SendingInformation.RENTALCAR, response);
 
-                        //send response back to TravelBroker
-                        messageData = objectMapper.writeValueAsBytes(responeseMessage);
-                        DatagramPacket dgOutPrepare = new DatagramPacket(messageData, messageData.length, Participant.localhost, Participant.travelBrokerPort);
+                        //send response back to corresponding TravelBroker instance
+                        messageData = objectMapper.writeValueAsBytes(responseMessage);
+                        DatagramPacket dgOutPrepare = new DatagramPacket(messageData, messageData.length, Participant.localhost, originPort);
 
                         r.dgSocket.send(dgOutPrepare);
-                        System.out.println("prepare answered: " + response);
+
+                        //log prepare answered
+                        transactionContext = new TransactionContext(States.PREPARE, originPort, true);
+                        logWriter.write(transactionId, transactionContext);
+                        transactionContextMap.put(transactionId, transactionContext);
                     }
                     case COMMIT -> {
-                        System.out.println("commit recieved");
-                        if(r.commit(dataObject.getTransaktionNumber())) {
-                            responeseMessage = new UDPMessage(dataObject.getTransaktionNumber(), new byte[0], SendingInformation.RENTALCAR, Operations.OK);
-                            parsedMessage = objectMapper.writeValueAsBytes(responeseMessage);
-                            DatagramPacket dgOutCommit = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, Participant.travelBrokerPort);
+                        //log commit received but not answered
+                        transactionContext = new TransactionContext(States.COMMIT, originPort, false);
+                        logWriter.write(transactionId, transactionContext);
+                        transactionContextMap.put(transactionId, transactionContext);
 
+                        LOGGER.log(Level.INFO, "2PC: Commit - " + transactionId);
+
+                        //run actual commit and check if transaction was completed successfully if not, no answer will be sent
+                        if(r.commit(dataObject.getTransaktionNumber())) {
+                            //create and parse response
+                            responseMessage = new UDPMessage(dataObject.getTransaktionNumber(), SendingInformation.RENTALCAR, Operations.OK);
+                            parsedMessage = objectMapper.writeValueAsBytes(responseMessage);
+
+                            //send response to corresponding travelBroker instance
+                            DatagramPacket dgOutCommit = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, originPort);
                             r.dgSocket.send(dgOutCommit);
-                            System.out.println("commit answered - Ok");
+
+                            //log commit answered
+                            transactionContext = new TransactionContext(States.COMMIT, originPort, true);
+                            logWriter.write(transactionId, transactionContext);
+                            transactionContextMap.put(transactionId, transactionContext);
                         }
                     }
                     case ABORT -> {
-                        System.out.println("abort recieved");
-                        if(r.abort(dataObject.getTransaktionNumber())){
-                            responeseMessage = new UDPMessage(dataObject.getTransaktionNumber(), new byte[0], SendingInformation.RENTALCAR, Operations.OK);
-                            parsedMessage = objectMapper.writeValueAsBytes(responeseMessage);
-                            DatagramPacket dgOutAbort = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, Participant.travelBrokerPort);
+                        //log abort but not answered
+                        transactionContext = new TransactionContext(States.ABORT, originPort, false);
+                        logWriter.write(transactionId, transactionContext);
+                        transactionContextMap.put(transactionId, transactionContext);
 
+                        LOGGER.log(Level.INFO, "2PC: Abort - " + transactionId);
+
+                        //run actual abort and check if aborted successfully
+                        if(r.abort(dataObject.getTransaktionNumber())){
+                            //prepare answer
+                            responseMessage = new UDPMessage(dataObject.getTransaktionNumber(), SendingInformation.RENTALCAR, Operations.OK);
+                            parsedMessage = objectMapper.writeValueAsBytes(responseMessage);
+
+                            //send response to corresponding travelBroker instance
+                            DatagramPacket dgOutAbort = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, originPort);
                             r.dgSocket.send(dgOutAbort);
-                            System.out.println("abort answered");
+
+                            //log abort answered
+                            transactionContext = new TransactionContext(States.ABORT, originPort, true);
+                            logWriter.write(transactionId, transactionContext);
+                            transactionContextMap.put(transactionId, transactionContext);
                         }
                     }
                     case AVAILIBILITY -> {
+                        LOGGER.log(Level.INFO, "Availability: request from travelBroker");
+
+                        //parse availability data back to class
                         messageData = dataObject.getData();
                         AvailabilityData availabilityData = objectMapper.readValue(messageData, AvailabilityData.class);
 
+                        //run actual availability check with requested params and store available rooms
                         ArrayList<Object> availableItems = r.getAvailableItems(availabilityData.getStartDate(), availabilityData.getEndDate());
-                        System.out.println(availableItems.get(0));
 
-                        //Des macht nix Sinn diese - If einfach weg und leere nachricht schicken, besser als gar nix schicken??
-                        if(!(availableItems.size() == 0)){
-                            System.out.println("happpepeeeendndnendndn");
+                        //if rooms not null prepare data and send answer
+                        if(!(availableItems == null)){
                             byte[] parsedItems = objectMapper.writeValueAsBytes(availableItems);
-                            UDPMessage responseMessage = new UDPMessage(dataObject.getTransaktionNumber(), parsedItems, SendingInformation.RENTALCAR, Operations.AVAILIBILITY);
+                            responseMessage = new UDPMessage(dataObject.getTransaktionNumber(), parsedItems, SendingInformation.RENTALCAR, Operations.AVAILIBILITY, Participant.rentalCarPort);
                             parsedMessage = objectMapper.writeValueAsBytes(responseMessage);
-                            //Datagrampacket for sending the response
-                            DatagramPacket dgPacketOut = new DatagramPacket(parsedMessage, parsedMessage.length, Participant.localhost, Participant.travelBrokerPort);
-                            r.dgSocket.send(dgPacketOut);
+
+                            //send response to corresponding travelBroker instance
+                            DatagramPacket dgOutAvailability= new DatagramPacket(parsedMessage, parsedMessage.length, r.localhost, originPort);
+                            r.dgSocket.send(dgOutAvailability);
 
                         }
                     }
                 }
 
             } catch (Exception e) {
-
+                LOGGER.log(Level.SEVERE, "The Socket or the objectMapper threw an error", e);
             }
         }
     }

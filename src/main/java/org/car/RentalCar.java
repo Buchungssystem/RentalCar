@@ -14,21 +14,25 @@ import java.sql.ResultSet;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class RentalCar extends Participant{
 
     public DatagramSocket dgSocket;
 
+    private final static Logger LOGGER = Logger.getLogger(Execute.class.getName());
+
     public RentalCar(){
         try{
             dgSocket = new DatagramSocket(Participant.rentalCarPort);
         }catch(Exception e){
-            System.out.println("Socket was not set: " + e.getMessage());
+            LOGGER.log(Level.SEVERE, "Socket was not set", e);
         }
     }
 
     @Override
-    public Operations prepare(BookingData bookingData, UUID transaktionId) {
+    public Operations prepare(BookingData bookingData, UUID transactionId) {
         DatabaseConnection dbConn = new DatabaseConnection();
         LocalDate startDate = bookingData.getStartDate();
         LocalDate endDate = bookingData.getEndDate();
@@ -40,11 +44,13 @@ public class RentalCar extends Participant{
             PreparedStatement stm = con.prepareStatement("SELECT * FROM booking");
             ResultSet rs = stm.executeQuery();
 
+            //loop through responded table and check if cars are available or not
             while (rs.next()) {
                 if(rs.getInt("carID") == requestedId){
                     LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
                     LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
                     if (!isAvailable(startDate, endDate, startDateEntry, endDateEntry)) {
+                        //if not available return abort
                         return Operations.ABORT;
                     }
 
@@ -52,40 +58,44 @@ public class RentalCar extends Participant{
             }
 
             //Car is available
-            stm = con.prepareStatement("INSERT INTO booking VALUES (\"" + transaktionId + "\", \"" + startDate + "\", \"" + endDate + "\", 0, " + bookingData.getSelectedCar() + ")");
+            stm = con.prepareStatement("INSERT INTO booking VALUES (\"" + transactionId + "\", \"" + startDate + "\", \"" + endDate + "\", 0, " + bookingData.getSelectedCar() + ")");
             stm.executeUpdate();
             System.out.println("successfully booked");
 
-            return Operations.ABORT;
+            return Operations.READY;
         }catch (Exception e){
-            System.out.println("kapput, weil " + e.getMessage());
+            LOGGER.log(Level.SEVERE, "Something went wrong with the database connection", e);
             return Operations.ABORT;
         }
 
     }
 
     @Override
-    public boolean commit(UUID transaktionId){
+    public boolean commit(UUID transactionId){
         DatabaseConnection dbConn = new DatabaseConnection();
         try(Connection con = dbConn.getConn()){
-            PreparedStatement stm = con.prepareStatement("UPDATE booking SET stable = 1 WHERE bookingID = \"" + transaktionId + "\"");
+            PreparedStatement stm = con.prepareStatement("UPDATE booking SET stable = 1 WHERE bookingID = \"" + transactionId + "\"");
             stm.executeUpdate();
+            //return true since the statement was successful
             return true;
         }catch(Exception e){
-            System.out.println("des kann jetzt nicht Wahrsteiner im commit");
+            LOGGER.log(Level.SEVERE, "Something went wrong with the database connection", e);
+            //return false since the transaction wasn't successful set stable
             return false;
         }
     }
 
     @Override
-    public boolean abort(UUID transaktionId){
+    public boolean abort(UUID transactionId){
         DatabaseConnection dbConn = new DatabaseConnection();
         try(Connection con = dbConn.getConn()){
-            PreparedStatement stm = con.prepareStatement("DELETE FROM booking WHERE bookingID = \"" + transaktionId + "\"");
+            PreparedStatement stm = con.prepareStatement("DELETE FROM booking WHERE bookingID = \"" + transactionId + "\"");
             stm.executeUpdate();
+            //return true since the statement was successful
             return true;
         }catch(Exception e){
-            System.out.println("des kann jetzt nicht Wahrsteiner im abort");
+            LOGGER.log(Level.SEVERE, "Something went wrong with the database connection", e);
+            //return false since the transaction wasn't successful aborted
             return false;
         }
     }
@@ -95,19 +105,21 @@ public class RentalCar extends Participant{
         DatabaseConnection dbConn = new DatabaseConnection();
         ArrayList<String> availableCarIds = new ArrayList<>();
         ResultSet rs;
-        UDPMessage udpMessage;
-        byte[] data;
         try(Connection con = dbConn.getConn()){
             PreparedStatement stm = con.prepareStatement("SELECT * FROM booking");
             rs = stm.executeQuery();
 
+            //loop through result table and check if cars are available or not
             while(rs.next()){
                 LocalDate startDateEntry = LocalDate.parse(rs.getString("startDate"));
                 LocalDate endDateEntry = LocalDate.parse(rs.getString("endDate"));
                 if (!isAvailable(startDate, endDate, startDateEntry, endDateEntry)) {
+                    //add room if not available to exclude in query later
                     availableCarIds.add(rs.getString("carID"));
                 }
             }
+
+            //build string to be in right format for the sql query
             String availableCarsIds = "";
             for (int i = 0; i < availableCarIds.size(); i++) {
                 if( i < availableCarIds.size() - 1){
@@ -118,17 +130,20 @@ public class RentalCar extends Participant{
             }
 
             stm = con.prepareStatement("SELECT * FROM car WHERE carID NOT IN (?)");
+            //append prepared string at the position of "?"
             stm.setString(1, availableCarsIds);
             rs = stm.executeQuery();
             ArrayList<Object> availableCars = new ArrayList<>();
+            //add all available rooms to returned table
             while(rs.next()){
                 availableCars.add(new Car(rs.getInt("carID"), rs.getString("brand"), rs.getString("type")));
             }
-            System.out.println(availableCars);
+
             return availableCars;
 
         }catch(Exception e){
-            System.out.println("An Error has occured: " + e.getMessage());
+            LOGGER.log(Level.SEVERE, "Something went wrong with the database connection", e);
+            //return null since there couldn't be any cars selected
             return null;
         }
     }
@@ -138,10 +153,6 @@ public class RentalCar extends Participant{
             return true;
         }
         return false;
-    }
-
-    public static void main(String[] args) {
-
     }
 }
 
